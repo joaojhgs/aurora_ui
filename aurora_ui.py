@@ -12,6 +12,9 @@ from datetime import datetime
 from threading import Thread
 import queue
 
+# Import database functionality
+from modules.database import get_message_history_service
+
 class MessageWidget(QFrame):
     """Custom widget to display messages in the chat history"""
     def __init__(self, message, is_user=False, parent=None, dark_mode=False, source_type=None):
@@ -487,7 +490,42 @@ class AuroraUI(QMainWindow):
         # Store last UI message to avoid duplication
         self._last_ui_message = None
         
-        # Add welcome message
+        # Initialize database message history service
+        self.message_history = get_message_history_service()
+        
+        # Load today's messages or show welcome message
+        self.load_todays_messages()
+        
+    def load_todays_messages(self):
+        """Load today's messages from database or show welcome message if none exist"""
+        try:
+            # Get today's messages from database
+            today_messages = self.message_history.get_today_messages()
+            
+            if today_messages:
+                print(f"UI: Loading {len(today_messages)} messages from today")
+                # Add each message to the UI
+                for msg in today_messages:
+                    # Use the Message model methods to get UI properties
+                    is_user = msg.is_user_message()
+                    source_type = msg.get_ui_source_type()
+                    
+                    # Add message to UI without storing in database again
+                    self._add_message_to_ui_only(msg.content, is_user, source_type)
+                    
+                print("UI: Loaded persisted messages from today")
+            else:
+                print("UI: No messages from today, showing welcome message")
+                # Show welcome message if no messages today
+                self._show_welcome_message()
+                
+        except Exception as e:
+            print(f"Error loading today's messages: {e}")
+            # Fallback to welcome message
+            self._show_welcome_message()
+    
+    def _show_welcome_message(self):
+        """Show the welcome message"""
         welcome_markdown = f"""
 # Welcome to Aurora AI Assistant v{self.version}
 
@@ -503,8 +541,19 @@ You can interact with the assistant in two ways:
 
 **Start by asking a question!**
 """
-        self.add_message(welcome_markdown, False, None)
+        self._add_message_to_ui_only(welcome_markdown, False, None)
+    
+    def _add_message_to_ui_only(self, message, is_user=False, source_type=None):
+        """Add a message to UI without storing in database (for loading persisted messages)"""
+        print(f"UI: Adding message to UI only: '{message[:30]}...' User: {is_user} Source: {source_type}")
         
+        message_widget = MessageWidget(message, is_user, dark_mode=self.dark_mode, source_type=source_type)
+        self.chat_layout.insertWidget(self.chat_layout.count() - 1, message_widget)
+        
+        # Scroll to bottom
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, self._ensure_scroll_to_bottom)
+
     def init_ui(self):
         """Initialize the UI components"""
         self.setWindowTitle("Aurora AI Voice & Text Assistant")
@@ -844,7 +893,7 @@ You can interact with the assistant in two ways:
             """)
     
     def add_message(self, message, is_user=False, source_type=None):
-        """Add a message to the chat history
+        """Add a message to the chat history and store in database
         
         Args:
             message: The message text to display
@@ -854,8 +903,25 @@ You can interact with the assistant in two ways:
         # Debug logging
         print(f"UI: Adding message to chat: '{message[:30]}...' User: {is_user} Source: {source_type}")
         
+        # Add to UI
         message_widget = MessageWidget(message, is_user, dark_mode=self.dark_mode, source_type=source_type)
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, message_widget)
+        
+        # Store in database
+        try:
+            # Store message in database using appropriate method
+            if is_user:
+                if source_type == "STT":
+                    self.message_history.store_user_voice_message(str(message))
+                else:
+                    self.message_history.store_user_text_message(str(message))
+            else:
+                self.message_history.store_assistant_message(str(message))
+            
+            print(f"UI: Stored message in database (User: {is_user}, Source: {source_type})")
+            
+        except Exception as e:
+            print(f"Error storing message in database: {e}")
         
         # Scroll to bottom - use a brief delay to ensure the UI has updated
         from PyQt6.QtCore import QTimer
