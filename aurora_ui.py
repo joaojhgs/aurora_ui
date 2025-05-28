@@ -14,6 +14,7 @@ import queue
 
 # Import database functionality
 from modules.database import get_message_history_service
+from modules.config.config_manager import config_manager
 
 class MessageWidget(QFrame):
     """Custom widget to display messages in the chat history"""
@@ -463,7 +464,8 @@ class AuroraUI(QMainWindow):
         self.version = "1.0.1"
         
         # Dark mode setting
-        self.dark_mode = os.getenv('AURORA_DARK_MODE', 'false').lower() == 'true'
+        from modules.config.config_manager import config_manager
+        self.dark_mode = config_manager.get('ui.dark_mode', False)
         
         # Setup the UI
         self.init_ui()
@@ -485,7 +487,7 @@ class AuroraUI(QMainWindow):
         self.original_on_audio_stream_stop = None
         
         # Debug mode for verbose logging
-        self.debug_mode = os.getenv('AURORA_UI_DEBUG', 'false').lower() == 'true'
+        self.debug_mode = config_manager.get('ui.debug', False)
         
         # Store last UI message to avoid duplication
         self._last_ui_message = None
@@ -1209,7 +1211,7 @@ You can interact with the assistant in two ways:
                 self.chat_layout.insertWidget(i, new_widget)
         
         # Save preference to environment variable
-        os.environ['AURORA_DARK_MODE'] = 'true' if self.dark_mode else 'false'
+        config_manager.get('ui.dark_mode') == 'true' if self.dark_mode else 'false'
     
     # Methods to hook into the existing STT/TTS system
     def hook_into_systems(self):
