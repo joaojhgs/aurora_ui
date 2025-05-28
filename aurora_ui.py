@@ -15,6 +15,9 @@ import queue
 # Import database functionality
 from modules.database import get_message_history_service
 from modules.config.config_manager import config_manager
+import asyncio
+
+from modules.helpers.runAsyncInThread import run_async_in_thread
 
 class MessageWidget(QFrame):
     """Custom widget to display messages in the chat history"""
@@ -968,7 +971,7 @@ You can interact with the assistant in two ways:
         message_str = str(message)
         
         # Create a thread to process the message to avoid UI freezing
-        def process_in_thread():
+        async def process_in_thread():
             try:
                 # Import the text-only processing function for UI input
                 from modules.langgraph.graph import process_text_input
@@ -976,7 +979,7 @@ You can interact with the assistant in two ways:
                 print(f"UI: Processing text input in thread: {message_str[:30]}...")
                 
                 # Use the text-only processing function (no TTS)
-                response = process_text_input(message)
+                response = await process_text_input(message)
                 
                 # Update the UI with the response
                 if response and response != "END":
@@ -992,7 +995,7 @@ You can interact with the assistant in two ways:
                 self.signals.status_changed.emit("idle")
         
         # Start processing thread
-        Thread(target=process_in_thread, daemon=True).start()
+        Thread(target=lambda: run_async_in_thread(process_in_thread()), daemon=True).start()
     
     def update_status(self, status):
         """Update the status indicator"""
@@ -1007,6 +1010,7 @@ You can interact with the assistant in two ways:
             self.status_indicator.set_processing()
         elif status == "speaking":
             self.status_indicator.set_speaking()
+    
     
     def process_stt_message(self, text):
         """Process a message coming from STT"""
@@ -1033,14 +1037,14 @@ You can interact with the assistant in two ways:
         print(f"UI: Sending marked STT message to processing: {text[:30]}...")
         
         # Process in a thread to avoid blocking UI
-        def process_in_thread():
+        async def process_in_thread():
             try:
                 # Import here to avoid circular imports
                 # Use stream_graph_updates for STT which will use TTS
                 from modules.langgraph.graph import stream_graph_updates
                 
                 # Let stream_graph_updates handle the UI update through our hook
-                response = stream_graph_updates(stt_msg)
+                response = await stream_graph_updates(stt_msg)
                 
                 if response and response != "END":
                     print(f"UI: Received STT response: {response[:30]}...")
@@ -1052,9 +1056,8 @@ You can interact with the assistant in two ways:
             except Exception as e:
                 print(f"Error processing STT message: {e}")
                 self.signals.status_changed.emit("idle")
-                
-        # Start processing in a separate thread
-        Thread(target=process_in_thread, daemon=True).start()
+
+        Thread(target=lambda: run_async_in_thread(process_in_thread()), daemon=True).start()
     
     def stop_voice(self):
         """Stop voice processing"""
@@ -1288,7 +1291,7 @@ You can interact with the assistant in two ways:
         from modules.langgraph import graph as lg
         original_stream_graph_updates = lg.stream_graph_updates
         
-        def ui_stream_graph_updates(user_input):
+        async def ui_stream_graph_updates(user_input):
             try:
                 # Convert to string for logging
                 input_str = str(user_input)
@@ -1321,7 +1324,7 @@ You can interact with the assistant in two ways:
                 
                 # Call the original function - only used by STT which needs TTS output
                 print("UI: Calling original stream_graph_updates")
-                response = original_stream_graph_updates(user_input)
+                response = await original_stream_graph_updates(user_input)
                 
                 # No need to manually add the response to UI here as:
                 # 1. For STT: We now explicitly add the response in process_stt_message
