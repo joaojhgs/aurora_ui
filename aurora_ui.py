@@ -13,11 +13,11 @@ from threading import Thread
 import queue
 
 # Import database functionality
-from modules.database import get_message_history_service
-from modules.config.config_manager import config_manager
+from app.database import get_message_history_service
+from app.config.config_manager import config_manager
 import asyncio
 
-from modules.helpers.runAsyncInThread import run_async_in_thread
+from app.helpers.runAsyncInThread import run_async_in_thread
 
 class MessageWidget(QFrame):
     """Custom widget to display messages in the chat history"""
@@ -467,7 +467,7 @@ class AuroraUI(QMainWindow):
         self.version = "1.0.1"
         
         # Dark mode setting
-        from modules.config.config_manager import config_manager
+        from app.config.config_manager import config_manager
         self.dark_mode = config_manager.get('ui.dark_mode', False)
         
         # Setup the UI
@@ -974,7 +974,7 @@ You can interact with the assistant in two ways:
         async def process_in_thread():
             try:
                 # Import the text-only processing function for UI input
-                from modules.langgraph.graph import process_text_input
+                from app.langgraph.graph import process_text_input
                 
                 print(f"UI: Processing text input in thread: {message_str[:30]}...")
                 
@@ -1041,7 +1041,7 @@ You can interact with the assistant in two ways:
             try:
                 # Import here to avoid circular imports
                 # Use stream_graph_updates for STT which will use TTS
-                from modules.langgraph.graph import stream_graph_updates
+                from app.langgraph.graph import stream_graph_updates
                 
                 # Let stream_graph_updates handle the UI update through our hook
                 response = await stream_graph_updates(stt_msg)
@@ -1061,7 +1061,7 @@ You can interact with the assistant in two ways:
     
     def stop_voice(self):
         """Stop voice processing"""
-        from modules.text_to_speech.tts import stop
+        from app.text_to_speech.tts import stop
         print("UI: Stopping voice")
         stop()
         self.update_status("idle")
@@ -1220,9 +1220,9 @@ You can interact with the assistant in two ways:
     def hook_into_systems(self):
         """Connect UI to the existing STT and TTS systems"""
         # Import the necessary modules
-        import modules.speech_to_text.stt as stt
-        import modules.text_to_speech.tts as tts
-        from modules.speech_to_text.audio_recorder import AudioToTextRecorder
+        import app.speech_to_text.stt as stt
+        import app.text_to_speech.tts as tts
+        from app.speech_to_text.audio_recorder import AudioToTextRecorder
         
         # Store original callbacks
         self.original_on_recording_start = stt.on_recording_start
@@ -1288,7 +1288,7 @@ You can interact with the assistant in two ways:
         tts.stream = TextToAudioStream(tts.engine, frames_per_buffer=256, on_audio_stream_start=ui_on_audio_stream_start, on_audio_stream_stop=ui_on_audio_stream_stop)
         
         # Patch the main processing function
-        from modules.langgraph import graph as lg
+        from app.langgraph import graph as lg
         original_stream_graph_updates = lg.stream_graph_updates
         
         async def ui_stream_graph_updates(user_input):
