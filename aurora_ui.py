@@ -16,6 +16,7 @@ import queue
 from app.database import get_message_history_service
 from app.config.config_manager import config_manager
 import asyncio
+from app.helpers.aurora_logger import log_info, log_debug, log_error
 
 from app.helpers.runAsyncInThread import run_async_in_thread
 
@@ -508,7 +509,7 @@ class AuroraUI(QMainWindow):
             today_messages = self.message_history.get_today_messages()
             
             if today_messages:
-                print(f"UI: Loading {len(today_messages)} messages from today")
+                log_debug(f"UI: Loading {len(today_messages)} messages from today")
                 # Add each message to the UI
                 for msg in today_messages:
                     # Use the Message model methods to get UI properties
@@ -518,14 +519,14 @@ class AuroraUI(QMainWindow):
                     # Add message to UI without storing in database again
                     self._add_message_to_ui_only(msg.content, is_user, source_type)
                     
-                print("UI: Loaded persisted messages from today")
+                log_debug("UI: Loaded persisted messages from today")
             else:
-                print("UI: No messages from today, showing welcome message")
+                log_debug("UI: No messages from today, showing welcome message")
                 # Show welcome message if no messages today
                 self._show_welcome_message()
                 
         except Exception as e:
-            print(f"Error loading today's messages: {e}")
+            log_error(f"Error loading today's messages: {e}")
             # Fallback to welcome message
             self._show_welcome_message()
     
@@ -550,7 +551,7 @@ You can interact with the assistant in two ways:
     
     def _add_message_to_ui_only(self, message, is_user=False, source_type=None):
         """Add a message to UI without storing in database (for loading persisted messages)"""
-        print(f"UI: Adding message to UI only: '{message[:30]}...' User: {is_user} Source: {source_type}")
+        log_debug(f"UI: Adding message to UI only: '{message[:30]}...' User: {is_user} Source: {source_type}")
         
         message_widget = MessageWidget(message, is_user, dark_mode=self.dark_mode, source_type=source_type)
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, message_widget)
@@ -906,7 +907,7 @@ You can interact with the assistant in two ways:
             source_type: The source of the message ("Text", "STT", or None)
         """
         # Debug logging
-        print(f"UI: Adding message to chat: '{message[:30]}...' User: {is_user} Source: {source_type}")
+        log_debug(f"UI: Adding message to chat: '{message[:30]}...' User: {is_user} Source: {source_type}")
         
         # Add to UI
         message_widget = MessageWidget(message, is_user, dark_mode=self.dark_mode, source_type=source_type)
@@ -923,10 +924,10 @@ You can interact with the assistant in two ways:
             else:
                 self.message_history.store_assistant_message(str(message))
             
-            print(f"UI: Stored message in database (User: {is_user}, Source: {source_type})")
+            log_debug(f"UI: Stored message in database (User: {is_user}, Source: {source_type})")
             
         except Exception as e:
-            print(f"Error storing message in database: {e}")
+            log_error(f"Error storing message in database: {e}")
         
         # Scroll to bottom - use a brief delay to ensure the UI has updated
         from PyQt6.QtCore import QTimer
@@ -945,11 +946,11 @@ You can interact with the assistant in two ways:
         if not message:
             return
         
-        print(f"UI: Sending message: {message[:30] if len(message) > 30 else message}")
+        log_debug(f"UI: Sending message: {message[:30] if len(message) > 30 else message}")
         
         # IMPORTANT: Add user message to chat with 'Text' source type
         self.add_message(message, is_user=True, source_type="Text")
-        print(f"UI: Added user message to UI")
+        log_debug(f"UI: Added user message to UI")
         
         # Clear input field
         self.input_field.clear()
@@ -957,7 +958,7 @@ You can interact with the assistant in two ways:
         # Set a flag to indicate this was processed by the UI
         # This will be checked by the graph updates hook to avoid duplicate display
         self._last_ui_message = message
-        print(f"UI: Set last UI message: {message[:30] if len(message) > 30 else message}")
+        log_debug(f"UI: Set last UI message: {message[:30] if len(message) > 30 else message}")
         
         # Process message
         self.process_message(message)
@@ -976,14 +977,14 @@ You can interact with the assistant in two ways:
                 # Import the text-only processing function for UI input
                 from app.langgraph.graph import process_text_input
                 
-                print(f"UI: Processing text input in thread: {message_str[:30]}...")
+                log_debug(f"UI: Processing text input in thread: {message_str[:30]}...")
                 
                 # Use the text-only processing function (no TTS)
                 response = await process_text_input(message)
                 
                 # Update the UI with the response
                 if response and response != "END":
-                    print(f"UI: Received text response: {response[:30]}...")
+                    log_debug(f"UI: Received text response: {response[:30]}...")
                     # IMPORTANT: Add response to UI (since we're not using TTS hook)
                     # No source type since it's an AI response
                     self.signals.message_received.emit(response, False, None)
@@ -991,7 +992,7 @@ You can interact with the assistant in two ways:
                 # Reset status
                 self.signals.status_changed.emit("idle")
             except Exception as e:
-                print(f"Error in processing thread: {e}")
+                log_error(f"Error in processing thread: {e}")
                 self.signals.status_changed.emit("idle")
         
         # Start processing thread
@@ -1000,7 +1001,7 @@ You can interact with the assistant in two ways:
     def update_status(self, status):
         """Update the status indicator"""
         if self.debug_mode:
-            print(f"UI Status changed to: {status}")
+            log_debug(f"UI Status changed to: {status}")
             
         if status == "idle":
             self.status_indicator.set_idle()
@@ -1014,7 +1015,7 @@ You can interact with the assistant in two ways:
     
     def process_stt_message(self, text):
         """Process a message coming from STT"""
-        print(f"UI: Processing STT message: {text}")
+        log_debug(f"UI: Processing STT message: {text}")
         
         # Update status to show we're processing
         self.signals.status_changed.emit("processing")
@@ -1034,7 +1035,7 @@ You can interact with the assistant in two ways:
         
         # Process the STT message - the UI update will happen in ui_stream_graph_updates
         stt_msg = STTMessage(text)
-        print(f"UI: Sending marked STT message to processing: {text[:30]}...")
+        log_debug(f"UI: Sending marked STT message to processing: {text[:30]}...")
         
         # Process in a thread to avoid blocking UI
         async def process_in_thread():
@@ -1047,14 +1048,14 @@ You can interact with the assistant in two ways:
                 response = await stream_graph_updates(stt_msg)
                 
                 if response and response != "END":
-                    print(f"UI: Received STT response: {response[:30]}...")
+                    log_debug(f"UI: Received STT response: {response[:30]}...")
                     # IMPORTANT: Add response to UI explicitly to ensure it's displayed
                     # This is a fallback in case the TTS hook doesn't work correctly
                     self.signals.message_received.emit(response, False, None)
-                    print(f"UI: Explicitly added STT response to chat")
+                    log_debug(f"UI: Explicitly added STT response to chat")
                 
             except Exception as e:
-                print(f"Error processing STT message: {e}")
+                log_error(f"Error processing STT message: {e}")
                 self.signals.status_changed.emit("idle")
 
         Thread(target=lambda: run_async_in_thread(process_in_thread()), daemon=True).start()
@@ -1062,7 +1063,7 @@ You can interact with the assistant in two ways:
     def stop_voice(self):
         """Stop voice processing"""
         from app.text_to_speech.tts import stop
-        print("UI: Stopping voice")
+        log_debug("UI: Stopping voice")
         stop()
         self.update_status("idle")
         
@@ -1232,25 +1233,25 @@ You can interact with the assistant in two ways:
         
         # Override callbacks to update UI
         def ui_on_recording_start():
-            print("UI: Recording started")
+            log_debug("UI: Recording started")
             self.signals.status_changed.emit("listening")
             if self.original_on_recording_start:
                 self.original_on_recording_start()
         
         def ui_on_recording_stop():
-            print("UI: Recording stopped")
+            log_debug("UI: Recording stopped")
             self.signals.status_changed.emit("processing")
             if self.original_on_recording_stop:
                 self.original_on_recording_stop()
         
         def ui_on_wakeword_detected():
-            print("UI: Wakeword detected")
+            log_debug("UI: Wakeword detected")
             self.signals.status_changed.emit("listening")
             if self.original_on_wakeword_detected:
                 self.original_on_wakeword_detected()
                 
         def ui_on_wakeword_detection_start():
-            print("UI: Listening for wakeword")
+            log_debug("UI: Listening for wakeword")
             self.signals.status_changed.emit("idle")
             if self.original_on_wakeword_detection_start:
                 self.original_on_wakeword_detection_start()
@@ -1267,7 +1268,7 @@ You can interact with the assistant in two ways:
         
         # Create enhanced audio stream callbacks
         def ui_on_audio_stream_start():
-            print("UI: Audio stream started")
+            log_debug("UI: Audio stream started")
             # Update the UI in the main thread
             self.signals.status_changed.emit("speaking")
             # Call the original callback
@@ -1275,7 +1276,7 @@ You can interact with the assistant in two ways:
                 self.original_on_audio_stream_start()
                 
         def ui_on_audio_stream_stop():
-            print("UI: Audio stream stopped")
+            log_debug("UI: Audio stream stopped")
             # Update the UI in the main thread
             self.signals.status_changed.emit("idle")
             # Call the original callback
@@ -1302,7 +1303,7 @@ You can interact with the assistant in two ways:
                 else:
                     log_str = input_str
                     
-                print(f"UI: Processing user input: {log_str}")
+                log_debug(f"UI: Processing user input: {log_str}")
                 
                 # Track if this is an STT message for deduplication later
                 is_stt_message = hasattr(user_input, 'from_stt') and user_input.from_stt
@@ -1310,20 +1311,20 @@ You can interact with the assistant in two ways:
                 # IMPORTANT: Check input source and display user message accordingly
                 if is_stt_message:
                     # This is from STT - add to UI first, then process
-                    print(f"UI: Adding STT message to chat: {log_str}")
+                    log_debug(f"UI: Adding STT message to chat: {log_str}")
                     self.signals.message_received.emit(input_str, True, "STT")
                 elif hasattr(self, '_last_ui_message') and self._last_ui_message == input_str:
                     # Message from text input - already displayed in send_message
-                    print(f"UI: Message from UI input, already displayed")
+                    log_debug(f"UI: Message from UI input, already displayed")
                     # Reset the flag to avoid future conflicts
                     self._last_ui_message = None
                 else:
                     # Any other source - add to UI to be safe
-                    print(f"UI: Adding message to chat from unknown source: {log_str}")
+                    log_debug(f"UI: Adding message to chat from unknown source: {log_str}")
                     self.signals.message_received.emit(input_str, True, None)
                 
                 # Call the original function - only used by STT which needs TTS output
-                print("UI: Calling original stream_graph_updates")
+                log_debug("UI: Calling original stream_graph_updates")
                 response = await original_stream_graph_updates(user_input)
                 
                 # No need to manually add the response to UI here as:
@@ -1332,7 +1333,7 @@ You can interact with the assistant in two ways:
                 
                 return response
             except Exception as e:
-                print(f"Error in UI stream_graph_updates: {e}")
+                log_error(f"Error in UI stream_graph_updates: {e}")
                 self.signals.status_changed.emit("idle")
                 return "Error processing request"
         
