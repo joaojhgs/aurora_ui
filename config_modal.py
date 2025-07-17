@@ -6,14 +6,15 @@ with Aurora's config manager and includes MCP server management with auto-discov
 """
 
 import json
+import os
 from typing import Any, List
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QFormLayout,
     QLineEdit, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox, QPushButton,
     QLabel, QTextEdit, QScrollArea, QFrame,
     QMessageBox, QProgressBar,
-    QFileDialog, QListWidget, QListWidgetItem,
-    QInputDialog
+    QListWidget, QListWidgetItem,
+    QInputDialog, QFileDialog
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon
@@ -41,9 +42,10 @@ class MCPDiscoveryWorker(QThread):
 class ConfigField:
     """Represents a configuration field with its metadata"""
 
-    def __init__(self, key: str, value: Any, field_type: str = "auto",
+    def __init__(self, key: str, value: Any, field_type: str = "string",
                  description: str = "", choices: List[str] = None,
-                 min_val: float = None, max_val: float = None):
+                 min_val: float = None, max_val: float = None,
+                 file_filter: str = None):
         self.key = key
         self.value = value
         self.field_type = field_type
@@ -51,29 +53,7 @@ class ConfigField:
         self.choices = choices or []
         self.min_val = min_val
         self.max_val = max_val
-
-        # Auto-detect field type if not specified
-        if field_type == "auto":
-            self.field_type = self._detect_type()
-
-    def _detect_type(self) -> str:
-        """Auto-detect the field type based on value"""
-        if isinstance(self.value, bool):
-            return "bool"
-        elif isinstance(self.value, int):
-            return "int"
-        elif isinstance(self.value, float):
-            return "float"
-        elif isinstance(self.value, str):
-            if len(self.value) > 100:
-                return "text"
-            return "string"
-        elif isinstance(self.value, (list, tuple)):
-            return "list"
-        elif isinstance(self.value, dict):
-            return "dict"
-        else:
-            return "string"
+        self.file_filter = file_filter
 
 
 class ConfigWidget(QWidget):
@@ -131,29 +111,52 @@ class ConfigWidget(QWidget):
                 self.widget.setCurrentText(str(self.field.value))
             self.widget.currentTextChanged.connect(self._on_choice_changed)
 
-        elif self.field.field_type == "text" or (isinstance(self.field.value, str) and len(str(self.field.value)) > 100):
+        elif self.field.field_type == "file":
+            # File chooser widget
+            file_layout = QHBoxLayout()
+            file_layout.setContentsMargins(0, 0, 0, 0)
+
+            self.widget = QLineEdit()
+            self.widget.setText(str(self.field.value))
+            self.widget.textChanged.connect(self._on_string_changed)
+            file_layout.addWidget(self.widget)
+
+            browse_btn = QPushButton("Browse...")
+            browse_btn.clicked.connect(self._on_browse_file)
+            file_layout.addWidget(browse_btn)
+
+            # Create a container widget for the layout
+            container = QWidget()
+            container.setLayout(file_layout)
+            layout.addWidget(container)
+            return  # Skip adding self.widget directly since we added the container
+
+        elif self.field.field_type == "text" or (self.field.field_type == "string" and isinstance(self.field.value, str) and len(str(self.field.value)) > 100):
             self.widget = QTextEdit()
             self.widget.setMaximumHeight(100)
             self.widget.setPlainText(str(self.field.value))
             self.widget.textChanged.connect(self._on_text_changed)
 
-        elif isinstance(self.field.value, list):
+        elif self.field.field_type == "list":
             # Handle lists as comma-separated values or JSON
             self.widget = QLineEdit()
-            if all(isinstance(item, (str, int, float, bool)) for item in self.field.value):
-                # Simple list - show as comma-separated
-                self.widget.setText(", ".join(str(item) for item in self.field.value))
-                self.widget.setPlaceholderText("Comma-separated values")
+            if isinstance(self.field.value, list):
+                if all(isinstance(item, (str, int, float, bool)) for item in self.field.value):
+                    # Simple list - show as comma-separated
+                    self.widget.setText(", ".join(str(item) for item in self.field.value))
+                    self.widget.setPlaceholderText("Comma-separated values")
+                else:
+                    # Complex list - show as JSON
+                    self.widget.setText(json.dumps(self.field.value, indent=2))
+                    self.widget.setPlaceholderText("JSON array")
             else:
-                # Complex list - show as JSON
-                self.widget.setText(json.dumps(self.field.value, indent=2))
-                self.widget.setPlaceholderText("JSON array")
+                self.widget.setText(str(self.field.value))
             self.widget.textChanged.connect(self._on_list_changed)
 
-        elif isinstance(self.field.value, dict):
-            # Handle small dicts as JSON
+        elif self.field.field_type == "dict":
+            # Handle dicts as JSON
             self.widget = QTextEdit() if len(json.dumps(self.field.value)) > 50 else QLineEdit()
-            formatted_json = json.dumps(self.field.value, indent=2)
+            formatted_json = json.dumps(self.field.value, indent=2) if isinstance(self.field.value, dict) else str(self.field.value)
             if isinstance(self.widget, QTextEdit):
                 self.widget.setMaximumHeight(100)
                 self.widget.setPlainText(formatted_json)
@@ -246,6 +249,40 @@ class ConfigWidget(QWidget):
     def _on_string_changed(self, text):
         self.value_changed.emit(self.field.key, text)
 
+    def _on_browse_file(self):
+        """Open file browser dialog"""
+
+        file_filter = self.field.file_filter or "All files (*.*)"
+
+        # Convert file filter format if needed (from Windows format to Qt format)
+        if "|" in file_filter:
+            # Convert from "Description (*.ext)|*.ext|All files (*.*)|*.*"
+            # to Qt format "Description (*.ext);;All files (*.*)"
+            parts = file_filter.split("|")
+            qt_filter_parts = []
+            for i in range(0, len(parts), 2):
+                if i + 1 < len(parts):
+                    description = parts[i]
+                    qt_filter_parts.append(f"{description}")
+            qt_filter = ";;".join(qt_filter_parts)
+        else:
+            qt_filter = file_filter
+
+        current_path = str(self.field.value) if self.field.value else ""
+        initial_dir = os.path.dirname(current_path) if current_path and os.path.exists(os.path.dirname(current_path)) else ""
+
+        # Use SimpleFileChooser with Qt native dialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            parent=self,
+            caption=f"Select {self.field.description or 'file'}",
+            directory=initial_dir,
+            filter=qt_filter
+        )
+
+        if file_path:
+            self.widget.setText(file_path)
+            self.value_changed.emit(self.field.key, file_path)
+
 
 class MCPServerWidget(QWidget):
     """Widget for managing a single MCP server configuration"""
@@ -257,6 +294,7 @@ class MCPServerWidget(QWidget):
         super().__init__(parent)
         self.server_name = server_name
         self.server_config = server_config.copy()
+        self.field_widgets = {}  # Store widget references for dynamic updates
         self.setup_ui()
 
     def setup_ui(self):
@@ -277,57 +315,12 @@ class MCPServerWidget(QWidget):
         layout.addLayout(header_layout)
 
         # Configuration form
-        form_layout = QFormLayout()
+        self.form_layout = QFormLayout()
 
-        # Enabled checkbox
-        self.enabled_cb = QCheckBox()
-        self.enabled_cb.setChecked(self.server_config.get("enabled", True))
-        self.enabled_cb.stateChanged.connect(self._on_config_changed)
-        form_layout.addRow("Enabled:", self.enabled_cb)
+        # Create the form fields
+        self._create_form_fields()
 
-        # Transport
-        self.transport_combo = QComboBox()
-        self.transport_combo.addItems(["stdio", "streamable_http", "sse", "websocket"])
-        transport = self.server_config.get("transport", "stdio")
-        if transport in ["stdio", "streamable_http", "sse", "websocket"]:
-            self.transport_combo.setCurrentText(transport)
-        self.transport_combo.currentTextChanged.connect(self._on_config_changed)
-        form_layout.addRow("Transport:", self.transport_combo)
-
-        # Command (for stdio)
-        self.command_edit = QLineEdit()
-        self.command_edit.setText(self.server_config.get("command", ""))
-        self.command_edit.textChanged.connect(self._on_config_changed)
-        form_layout.addRow("Command:", self.command_edit)
-
-        # Args (for stdio)
-        self.args_edit = QLineEdit()
-        args = self.server_config.get("args", [])
-        if isinstance(args, list):
-            self.args_edit.setText(json.dumps(args))
-        else:
-            self.args_edit.setText(str(args))
-        self.args_edit.textChanged.connect(self._on_config_changed)
-        form_layout.addRow("Arguments:", self.args_edit)
-
-        # URL (for HTTP transports)
-        self.url_edit = QLineEdit()
-        self.url_edit.setText(self.server_config.get("url", ""))
-        self.url_edit.textChanged.connect(self._on_config_changed)
-        form_layout.addRow("URL:", self.url_edit)
-
-        # Environment variables
-        self.env_edit = QTextEdit()
-        self.env_edit.setMaximumHeight(60)
-        env = self.server_config.get("env", {})
-        if isinstance(env, dict):
-            self.env_edit.setPlainText(json.dumps(env, indent=2))
-        else:
-            self.env_edit.setPlainText(str(env))
-        self.env_edit.textChanged.connect(self._on_config_changed)
-        form_layout.addRow("Environment:", self.env_edit)
-
-        layout.addLayout(form_layout)
+        layout.addLayout(self.form_layout)
 
         # Add a separator
         separator = QFrame()
@@ -335,35 +328,265 @@ class MCPServerWidget(QWidget):
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(separator)
 
+    def _create_form_fields(self):
+        """Create form fields based on the current transport type"""
+        # Clear existing fields
+        self._clear_form()
+
+        # Always show enabled checkbox
+        self._add_enabled_field()
+
+        # Always show transport selector
+        self._add_transport_field()
+
+        # Add transport-specific fields
+        transport = self.server_config.get("transport", "stdio")
+        if transport == "stdio":
+            self._add_stdio_fields()
+        elif transport in ["streamable_http", "sse", "websocket"]:
+            self._add_http_fields(transport)
+
+        # Add common optional fields
+        self._add_common_fields()
+
+    def _clear_form(self):
+        """Clear all form fields"""
+        while self.form_layout.count():
+            child = self.form_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        self.field_widgets.clear()
+
+    def _add_enabled_field(self):
+        """Add enabled checkbox"""
+        enabled_cb = QCheckBox()
+        enabled_cb.setChecked(self.server_config.get("enabled", True))
+        enabled_cb.stateChanged.connect(self._on_config_changed)
+        self.form_layout.addRow("Enabled:", enabled_cb)
+        self.field_widgets["enabled"] = enabled_cb
+
+    def _add_transport_field(self):
+        """Add transport selector"""
+        transport_combo = QComboBox()
+        transport_combo.addItems(["stdio", "streamable_http", "sse", "websocket"])
+
+        transport = self.server_config.get("transport", "stdio")
+        if transport in ["stdio", "streamable_http", "sse", "websocket"]:
+            transport_combo.setCurrentText(transport)
+
+        # Connect to special handler that rebuilds the form
+        transport_combo.currentTextChanged.connect(self._on_transport_changed)
+        self.form_layout.addRow("Transport:", transport_combo)
+        self.field_widgets["transport"] = transport_combo
+
+    def _add_stdio_fields(self):
+        """Add fields specific to stdio transport"""
+        # Command field (required)
+        command_edit = QLineEdit()
+        command_edit.setText(self.server_config.get("command", ""))
+        command_edit.textChanged.connect(self._on_config_changed)
+        command_edit.setPlaceholderText("e.g., python, node, /path/to/executable")
+        self.form_layout.addRow("Command*:", command_edit)
+        self.field_widgets["command"] = command_edit
+
+        # Args field (optional) - improve UX with better validation
+        args_edit = QLineEdit()
+        args = self.server_config.get("args", [])
+        if isinstance(args, list):
+            args_edit.setText(json.dumps(args) if args else "")
+        else:
+            args_edit.setText(str(args))
+        args_edit.textChanged.connect(self._on_config_changed)
+        args_edit.setPlaceholderText('["script.py", "--option", "value"] or leave empty')
+
+        # Add validation indicator for args
+        args_container = QHBoxLayout()
+        args_container.addWidget(args_edit)
+
+        args_status = QLabel("✓")
+        args_status.setStyleSheet("color: green; font-weight: bold;")
+        args_status.setFixedWidth(20)
+        args_container.addWidget(args_status)
+
+        # Validate args on text change
+        def validate_args():
+            text = args_edit.text().strip()
+            if not text:
+                args_status.setText("✓")
+                args_status.setStyleSheet("color: green; font-weight: bold;")
+                args_status.setToolTip("No arguments (valid)")
+            else:
+                try:
+                    parsed = json.loads(text)
+                    if isinstance(parsed, list):
+                        args_status.setText("✓")
+                        args_status.setStyleSheet("color: green; font-weight: bold;")
+                        args_status.setToolTip("Valid JSON array")
+                    else:
+                        args_status.setText("!")
+                        args_status.setStyleSheet("color: orange; font-weight: bold;")
+                        args_status.setToolTip("JSON is valid but not an array - will be converted")
+                except json.JSONDecodeError:
+                    args_status.setText("!")
+                    args_status.setStyleSheet("color: orange; font-weight: bold;")
+                    args_status.setToolTip("Invalid JSON - will be treated as single argument")
+
+        args_edit.textChanged.connect(validate_args)
+        validate_args()  # Initial validation
+
+        args_widget = QWidget()
+        args_widget.setLayout(args_container)
+        self.form_layout.addRow("Arguments:", args_widget)
+        self.field_widgets["args"] = args_edit
+
+        # Working directory field (optional)
+        cwd_edit = QLineEdit()
+        cwd_edit.setText(self.server_config.get("cwd", ""))
+        cwd_edit.textChanged.connect(self._on_config_changed)
+        cwd_edit.setPlaceholderText("/path/to/working/directory")
+        self.form_layout.addRow("Working Directory:", cwd_edit)
+        self.field_widgets["cwd"] = cwd_edit
+
+        # Environment variables (optional)
+        env_edit = QTextEdit()
+        env_edit.setMaximumHeight(60)
+        env = self.server_config.get("env", {})
+        if isinstance(env, dict):
+            env_edit.setPlainText(json.dumps(env, indent=2) if env else "")
+        else:
+            env_edit.setPlainText(str(env))
+        env_edit.textChanged.connect(self._on_config_changed)
+        env_edit.setPlaceholderText('{"ENV_VAR": "value", "ANOTHER_VAR": "value"}')
+        self.form_layout.addRow("Environment Variables:", env_edit)
+        self.field_widgets["env"] = env_edit
+
+    def _add_http_fields(self, transport_type):
+        """Add fields specific to HTTP-based transports"""
+        # URL field (required)
+        url_edit = QLineEdit()
+        url_edit.setText(self.server_config.get("url", ""))
+        url_edit.textChanged.connect(self._on_config_changed)
+
+        # Set placeholder based on transport type
+        if transport_type == "streamable_http":
+            url_edit.setPlaceholderText("http://localhost:3000/mcp/")
+        elif transport_type == "sse":
+            url_edit.setPlaceholderText("http://localhost:3000/sse")
+        elif transport_type == "websocket":
+            url_edit.setPlaceholderText("ws://localhost:3000/ws")
+
+        self.form_layout.addRow("URL*:", url_edit)
+        self.field_widgets["url"] = url_edit
+
+        # Headers field (optional)
+        headers_edit = QTextEdit()
+        headers_edit.setMaximumHeight(80)
+        headers = self.server_config.get("headers", {})
+        if isinstance(headers, dict):
+            headers_edit.setPlainText(json.dumps(headers, indent=2) if headers else "")
+        else:
+            headers_edit.setPlainText(str(headers))
+        headers_edit.textChanged.connect(self._on_config_changed)
+        headers_edit.setPlaceholderText('{"Authorization": "Bearer token", "Content-Type": "application/json"}')
+        self.form_layout.addRow("Headers:", headers_edit)
+        self.field_widgets["headers"] = headers_edit
+
+    def _add_common_fields(self):
+        """Add common optional fields"""
+        # Timeout field
+        timeout_spin = QSpinBox()
+        timeout_spin.setRange(1, 300)
+        timeout_spin.setSuffix(" seconds")
+        timeout_spin.setValue(self.server_config.get("timeout", 30))
+        timeout_spin.valueChanged.connect(self._on_config_changed)
+        self.form_layout.addRow("Timeout:", timeout_spin)
+        self.field_widgets["timeout"] = timeout_spin
+
+    def _on_transport_changed(self, new_transport):
+        """Handle transport type change - rebuild the form"""
+        # Update the config first
+        self.server_config["transport"] = new_transport
+
+        # Clear transport-specific fields from config
+        fields_to_clear = ["command", "args", "cwd", "env", "url", "headers"]
+        for field in fields_to_clear:
+            self.server_config.pop(field, None)
+
+        # Rebuild the form
+        self._create_form_fields()
+
+        # Emit the change
+        self._emit_config_change()
+
     def _on_config_changed(self):
         """Update server config when any field changes"""
-        self.server_config = {
-            "enabled": self.enabled_cb.isChecked(),
-            "transport": self.transport_combo.currentText(),
-            "command": self.command_edit.text(),
-            "url": self.url_edit.text()
+        self._emit_config_change()
+
+    def _emit_config_change(self):
+        """Collect all field values and emit the change"""
+        # Start with transport (always present)
+        new_config = {
+            "transport": self.field_widgets["transport"].currentText(),
+            "enabled": self.field_widgets["enabled"].isChecked()
         }
 
-        # Parse args as JSON
-        try:
-            args_text = self.args_edit.text().strip()
-            if args_text:
-                self.server_config["args"] = json.loads(args_text)
-            else:
-                self.server_config["args"] = []
-        except json.JSONDecodeError:
-            self.server_config["args"] = [self.args_edit.text()]
+        transport = new_config["transport"]
 
-        # Parse env as JSON
-        try:
-            env_text = self.env_edit.toPlainText().strip()
-            if env_text:
-                self.server_config["env"] = json.loads(env_text)
-            else:
-                self.server_config["env"] = {}
-        except json.JSONDecodeError:
-            self.server_config["env"] = {}
+        # Add transport-specific fields
+        if transport == "stdio":
+            # Command is required
+            if "command" in self.field_widgets:
+                command = self.field_widgets["command"].text().strip()
+                if command:
+                    new_config["command"] = command
 
+            # Args are optional
+            if "args" in self.field_widgets:
+                args_text = self.field_widgets["args"].text().strip()
+                if args_text:
+                    try:
+                        new_config["args"] = json.loads(args_text)
+                    except json.JSONDecodeError:
+                        # If not valid JSON, treat as single argument
+                        new_config["args"] = [args_text]
+
+            # Working directory is optional
+            if "cwd" in self.field_widgets:
+                cwd = self.field_widgets["cwd"].text().strip()
+                if cwd:
+                    new_config["cwd"] = cwd
+
+            # Environment variables are optional
+            if "env" in self.field_widgets:
+                env_text = self.field_widgets["env"].toPlainText().strip()
+                if env_text:
+                    try:
+                        new_config["env"] = json.loads(env_text)
+                    except json.JSONDecodeError:
+                        new_config["env"] = {}
+
+        elif transport in ["streamable_http", "sse", "websocket"]:
+            # URL is required
+            if "url" in self.field_widgets:
+                url = self.field_widgets["url"].text().strip()
+                if url:
+                    new_config["url"] = url
+
+            # Headers are optional
+            if "headers" in self.field_widgets:
+                headers_text = self.field_widgets["headers"].toPlainText().strip()
+                if headers_text:
+                    try:
+                        new_config["headers"] = json.loads(headers_text)
+                    except json.JSONDecodeError:
+                        new_config["headers"] = {}
+
+        # Add common fields
+        if "timeout" in self.field_widgets:
+            new_config["timeout"] = self.field_widgets["timeout"].value()
+
+        # Update internal config and emit change
+        self.server_config = new_config
         self.server_changed.emit(self.server_name, self.server_config)
 
 
@@ -636,11 +859,12 @@ class ConfigurationModal(QDialog):
             field = ConfigField(
                 key=full_key,
                 value=value,
-                field_type=metadata.get("type", "auto"),
+                field_type=metadata.get("type", "string"),
                 description=metadata.get("description", ""),
                 choices=metadata.get("choices", []),
                 min_val=metadata.get("min", None),
-                max_val=metadata.get("max", None)
+                max_val=metadata.get("max", None),
+                file_filter=metadata.get("file_filter", None)
             )
 
             widget = ConfigWidget(field)
@@ -685,6 +909,13 @@ class ConfigurationModal(QDialog):
 
     def on_config_changed(self, key: str, value: Any):
         """Handle configuration field changes"""
+        # Filter out empty strings - don't save them to config
+        if isinstance(value, str) and value.strip() == "":
+            # If the key exists in config_changes, remove it (this will prevent saving empty strings)
+            if key in self.config_changes:
+                del self.config_changes[key]
+            return
+
         self.config_changes[key] = value
         log_debug(f"Config changed: {key} = {value}")
 
@@ -913,8 +1144,12 @@ class ConfigurationModal(QDialog):
 
     def load_config_from_file(self):
         """Load configuration from a file"""
+
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Load Configuration", "", "JSON Files (*.json);;All Files (*)"
+            parent=self,
+            caption="Load Configuration",
+            directory="",
+            filter="JSON Files (*.json);;All Files (*)"
         )
 
         if file_path:
@@ -928,8 +1163,12 @@ class ConfigurationModal(QDialog):
 
     def save_config_to_file(self):
         """Save configuration to a file"""
+
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Configuration", "aurora_config.json", "JSON Files (*.json);;All Files (*)"
+            parent=self,
+            caption="Save Configuration",
+            directory="aurora_config.json",
+            filter="JSON Files (*.json);;All Files (*)"
         )
 
         if file_path:
@@ -977,9 +1216,11 @@ class ConfigurationModal(QDialog):
     def save_configuration(self):
         """Save all configuration changes"""
         try:
-            # Apply field changes
+            # Apply field changes, filtering out empty strings
             for key, value in self.config_changes.items():
-                config_manager.set(key, value)
+                # Only save non-empty string values or non-string values
+                if not (isinstance(value, str) and value.strip() == ""):
+                    config_manager.set(key, value)
 
             # Apply MCP server changes
             if self.mcp_servers:

@@ -1,8 +1,7 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QTextEdit, QLineEdit, QPushButton,
-                             QLabel, QScrollArea, QFrame, QTextBrowser, QSizePolicy, QSpacerItem)
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread, QSize, QUrl
-from PyQt6.QtGui import QIcon, QColor, QPalette, QFont
+                             QHBoxLayout, QTextEdit, QLineEdit, QPushButton, QFileDialog,
+                             QLabel, QScrollArea, QFrame, QTextBrowser, QSizePolicy)
+from PyQt6.QtCore import Qt, QObject, pyqtSignal
 
 import sys
 import os
@@ -15,8 +14,7 @@ import queue
 # Import database functionality
 from app.database import get_message_history_service
 from app.config.config_manager import config_manager
-import asyncio
-from app.helpers.aurora_logger import log_info, log_debug, log_error
+from app.helpers.aurora_logger import log_debug, log_error
 
 from app.helpers.runAsyncInThread import run_async_in_thread
 
@@ -898,16 +896,17 @@ You can interact with the assistant in two ways:
 
     def export_chat(self):
         """Export chat history to a file"""
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PyQt6.QtWidgets import QMessageBox
         import json
         from datetime import datetime
 
         try:
             # Get save file path
             file_path, _ = QFileDialog.getSaveFileName(
-                self, "Export Chat History",
-                f"aurora_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                "JSON Files (*.json);;Text Files (*.txt);;All Files (*)"
+                parent=self,
+                caption="Export Chat History",
+                directory=f"aurora_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                filter="JSON Files (*.json);;Text Files (*.txt);;All Files (*)"
             )
 
             if not file_path:
