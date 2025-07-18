@@ -1485,7 +1485,7 @@ You can interact with the assistant in two ways:
         self._recreate_message_widgets()
 
         # Save preference to environment variable
-        config_manager.get('ui.dark_mode') == 'true' if self.dark_mode else 'false'
+        config_manager.set('ui.dark_mode', 'true' if self.dark_mode else 'false')
 
     def _recreate_message_widgets(self):
         """Recreate all message widgets with updated styling"""
