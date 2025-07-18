@@ -82,7 +82,7 @@ class ConfigWidget(QWidget):
             if self.field.min_val is not None:
                 self.widget.setMinimum(int(self.field.min_val))
             else:
-                self.widget.setMinimum(-999999)
+                self.widget.setMinimum(-sys.maxsize)
             if self.field.max_val is not None:
                 self.widget.setMaximum(int(self.field.max_val))
             else:
