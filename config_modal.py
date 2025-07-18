@@ -178,7 +178,7 @@ class ConfigWidget(QWidget):
             self.widget.setToolTip(self.field.description)
 
     def _on_bool_changed(self, state):
-        self.value_changed.emit(self.field.key, state == Qt.CheckState.Checked.value)
+        self.value_changed.emit(self.field.key, state == Qt.CheckState.Checked)
 
     def _on_int_changed(self, value):
         self.value_changed.emit(self.field.key, value)
