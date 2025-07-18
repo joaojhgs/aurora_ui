@@ -268,8 +268,9 @@ class ConfigWidget(QWidget):
         else:
             qt_filter = file_filter
 
-        current_path = str(self.field.value) if self.field.value else ""
-        initial_dir = os.path.dirname(current_path) if current_path and os.path.exists(os.path.dirname(current_path)) else ""
+        from pathlib import Path
+        current_path = Path(self.field.value) if isinstance(self.field.value, (str, Path)) else Path()
+        initial_dir = current_path.parent if current_path.exists() and current_path.is_file() else Path()
 
         # Use SimpleFileChooser with Qt native dialog
         file_path, _ = QFileDialog.getOpenFileName(
