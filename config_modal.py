@@ -911,7 +911,7 @@ class ConfigurationModal(QDialog):
     def on_config_changed(self, key: str, value: Any):
         """Handle configuration field changes"""
         # Filter out empty strings - don't save them to config
-        if isinstance(value, str) and value.strip() == "":
+        if self._is_empty_string(value):
             # If the key exists in config_changes, remove it (this will prevent saving empty strings)
             if key in self.config_changes:
                 del self.config_changes[key]
